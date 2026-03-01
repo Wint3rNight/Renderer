@@ -4,18 +4,17 @@
 #include <vector>
 #include <vulkan/vulkan.h>
 
-//wanted vulkan validation layer
-const std::vector<const char*> validationLayers = {
-    "VK_LAYER_KHRONOS_validation"
-};
+// wanted vulkan validation layer
+const std::vector<const char *> validationLayers = {
+    "VK_LAYER_KHRONOS_validation"};
 
 #ifdef NDEBUG
-    const bool enableValidationLayers = false;
+const bool enableValidationLayers = false;
 #else
-    const bool enableValidationLayers = true;
+const bool enableValidationLayers = true;
 #endif
 
-//the callback for validation layer messages
+// the callback for validation layer messages
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
               VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -27,7 +26,7 @@ debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
   return VK_FALSE; // Always return false per Vulkan spec
 }
 
-//helper to check validation layer support
+// helper to check validation layer support
 inline bool checkValidationLayerSupport() {
   uint32_t layerCount;
   vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
@@ -48,7 +47,7 @@ inline bool checkValidationLayerSupport() {
   return true;
 }
 
-//helper to populate the debug messenger create info struct
+// helper to populate the debug messenger create info struct
 inline void populateDebugMessengerCreateInfo(
     VkDebugUtilsMessengerCreateInfoEXT &createInfo) {
   createInfo = {};

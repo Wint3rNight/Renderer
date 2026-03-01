@@ -3,6 +3,7 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan_core.h>
 
+#include <set>
 #include <stdexcept>
 #include <vector>
 
@@ -29,11 +30,11 @@ private:
     VkDevice logicalDevice;
   } mainDevice;
   VkQueue graphicsQueue;
+  VkQueue presentationQueue;
   VkSurfaceKHR surface;
 
   // vulkan functions
   void createInstance();
-  void createDebugCallback();
   void createLogicalDevice();
   void createSurface();
 
@@ -43,9 +44,11 @@ private:
   // support functions
   // checker functions
   bool checkInstanceExtensionSupport(std::vector<const char *> *checkEtensions);
+  bool checkDeviceExtensionSupport(VkPhysicalDevice device);
   bool checkValidationLayerSupport();
   bool checkDeviceSuitable(VkPhysicalDevice device);
 
   // getter functions
   QueueFamilyIndices getQueueFamilies(VkPhysicalDevice device);
+  SwapChainDetails getSwapChainDetails(VkPhysicalDevice device);
 };
