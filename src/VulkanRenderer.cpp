@@ -4,6 +4,7 @@
 
 #include <GLFW/glfw3.h>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 #include <stdexcept>
@@ -45,6 +46,7 @@ int VulkanRenderer::init(GLFWwindow *newWindow) {
     getPhysicalDevice();
     createLogicalDevice();
     createSwapChain();
+    createGraphicsPipeline();
 
   } catch (const std::runtime_error &e) {
     printf("%s\n", e.what());
@@ -93,7 +95,7 @@ void VulkanRenderer::createInstance() {
   appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
   appInfo.pEngineName = "No Engine";
   appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-  appInfo.apiVersion = VK_API_VERSION_1_1;
+  appInfo.apiVersion = VK_API_VERSION_1_3;
 
   // create information for vkinstance
   VkInstanceCreateInfo createInfo = {};
@@ -328,6 +330,45 @@ void VulkanRenderer::createSwapChain() {
   }
 }
 
+void VulkanRenderer::createGraphicsPipeline() {
+  // read in spirv shader bytecode
+  auto vertShaderCode = readFile("../Shaders/shader.vert.spv");
+  auto fragShaderCode = readFile("../Shaders/shader.frag.spv");
+
+  // create shader module
+  VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
+  VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+
+  // vertex shader stage creation info
+  VkPipelineShaderStageCreateInfo vertShaderCreateInfo = {};
+  vertShaderCreateInfo.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  vertShaderCreateInfo.stage = VK_SHADER_STAGE_VERTEX_BIT; // shader stage name
+  vertShaderCreateInfo.module =
+      vertShaderModule; // shader module containing code for shader stage
+  vertShaderCreateInfo.pName = "main"; // entry point function
+
+  // fragment shader stage creation info
+  VkPipelineShaderStageCreateInfo fragShaderCreateInfo = {};
+  fragShaderCreateInfo.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  fragShaderCreateInfo.stage =
+      VK_SHADER_STAGE_FRAGMENT_BIT; // shader stage name
+  fragShaderCreateInfo.module =
+      fragShaderModule; // shader module containing code for shader stage
+  fragShaderCreateInfo.pName = "main"; // entry point function
+
+  //putting shader stage create into into arrary because graphics pipeline create info takes in an array of shader
+  VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderCreateInfo, fragShaderCreateInfo};
+
+
+  // create pipeline
+
+  // destroy shader modules that are no long needed
+  vkDestroyShaderModule(mainDevice.logicalDevice, fragShaderModule, nullptr);
+  vkDestroyShaderModule(mainDevice.logicalDevice, vertShaderModule, nullptr);
+}
+
 void VulkanRenderer::getPhysicalDevice() {
   // enumerate physical devices the vkinstance can access
   uint32_t deviceCount = 0;
@@ -344,6 +385,19 @@ void VulkanRenderer::getPhysicalDevice() {
   for (const auto &device : deviceList) {
     if (checkDeviceSuitable(device)) {
       mainDevice.physicalDevice = device;
+
+      VkPhysicalDeviceProperties deviceProperties;
+      vkGetPhysicalDeviceProperties(mainDevice.physicalDevice,
+                                    &deviceProperties);
+
+      printf("Selected GPU: %s\n", deviceProperties.deviceName);
+      printf("Device Type: %d\n", deviceProperties.deviceType);
+      printf("Total Devices Found %d\n", deviceCount);
+
+      printf("API Version: %d.%d.%d\n",
+             VK_VERSION_MAJOR(deviceProperties.apiVersion),
+             VK_VERSION_MINOR(deviceProperties.apiVersion),
+             VK_VERSION_PATCH(deviceProperties.apiVersion));
       break;
     }
   }
@@ -629,4 +683,26 @@ VkImageView VulkanRenderer::createImageView(VkImage image, VkFormat format,
   }
 
   return imageView;
+}
+
+VkShaderModule
+VulkanRenderer::createShaderModule(const std::vector<char> &code) {
+  // shader module creation
+  VkShaderModuleCreateInfo shaderModuleCreateInfo = {};
+  shaderModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  shaderModuleCreateInfo.codeSize = code.size();
+  shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(
+      code.data()); // pointter to code data, need to be uint32_t pointer, so we
+                    // cast from char pointer
+
+  VkShaderModule shaderModule;
+  VkResult result =
+      vkCreateShaderModule(mainDevice.logicalDevice, &shaderModuleCreateInfo,
+                           nullptr, &shaderModule);
+
+  if (result != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create shader module");
+  }
+
+  return shaderModule;
 }

@@ -1,9 +1,8 @@
-#include <GLFW/glfw3.h>
 #include "VulkanRenderer.h"
+#include <GLFW/glfw3.h>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
-
 
 GLFWwindow *window;
 VulkanRenderer vulkanRenderer;
