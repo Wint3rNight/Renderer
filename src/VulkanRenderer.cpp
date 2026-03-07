@@ -57,8 +57,11 @@ int VulkanRenderer::init(GLFWwindow *newWindow) {
 }
 
 void VulkanRenderer::cleanup() {
+  vkDestroyPipeline(mainDevice.logicalDevice, graphicsPipeline, nullptr);
 
   vkDestroyPipelineLayout(mainDevice.logicalDevice, pipelineLayout, nullptr);
+
+  vkDestroyRenderPass(mainDevice.logicalDevice, renderPass, nullptr);
 
   // destroy image views
   for (auto image : swapChainImages) {
@@ -358,18 +361,109 @@ void VulkanRenderer::createRenderPass() {
   // image during different stages of the
   // render pass
   colorAttachment.initialLayout =
-      VK_IMAGE_LAYOUT_UNDEFINED; // layout of attachment before rendering
+      VK_IMAGE_LAYOUT_UNDEFINED; // layout of attachment before rendering(first
+                                 // transition)
   colorAttachment.finalLayout =
-      VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; // layout of attachment after rendering
+      VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; // layout of attachment after
+                                       // rendering(layout of attachment when it
+                                       // will be presented in the swap
+                                       // chain(final transition))
 
-  // todo subpasses
+  // attachment reference uses an attachment index to specify which attachment
+  // to reference and the layout it will be in during a subpass
+  VkAttachmentReference colorAttachmentReference = {};
+  colorAttachmentReference.attachment = 0;
+  colorAttachmentReference.layout =
+      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // layout of attachment during
+                                                // subpass(second transition)
 
+  // information about the subpass, a subpass is a rendering pass that
+  // references attachments, there can be multiple subpasses in a render pass
+  // and they can reference the same attachments in different ways(eg. color
+  // attachment in one subpass, input attachment in another subpass)
+  VkSubpassDescription subpass = {};
+  subpass.pipelineBindPoint =
+      VK_PIPELINE_BIND_POINT_GRAPHICS; // bind point of the subpass
+  subpass.colorAttachmentCount = 1;    // number of color attachments
+  subpass.pColorAttachments =
+      &colorAttachmentReference; // list of color attachments
+
+  // determine subpass dependencies for layout transitions
+  std::array<VkSubpassDependency, 2> subpassDependencies;
+  // Conversion from VK_IMAGE_LAYOUT_UNDEFINED to
+  // VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+  //  transition must happen after the render pass finishes and before the next
+  //  render pass begins, so it must wait on the color attachment output stage
+  //  of the first subpass to finish and must happen before the color attachment
+  //  output stage of the second subpass begins
+  //(after the previous render pass finishes)
+  subpassDependencies[0].srcSubpass =
+      VK_SUBPASS_EXTERNAL; // subpass index of source of dependency is external
+                           // to the render pass
+  subpassDependencies[0].srcStageMask =
+      VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT; // wait for all operations to be
+  // finished
+  subpassDependencies[0].srcAccessMask =
+      VK_ACCESS_MEMORY_READ_BIT; // wait until memory is no longer being read
+
+  // (before starting the next render pass)
+  subpassDependencies[0].dstSubpass = 0; // our subpass is the destination
+  subpassDependencies[0].dstStageMask =
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // before starting color
+                                                     // attachment output stage
+  subpassDependencies[0].dstAccessMask =
+      VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT; // wait until color attachment is no
+  // longer being read from or written
+  subpassDependencies[0].dependencyFlags = 0;
+
+  // Conversion from VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL to
+  // VK_IMAGE_LAYOUT_PRESENT_SRC_KHR must happen after the color attachment
+  // output stage of the subpass finishes and before the next render pass
+  // begins, so it must wait on the color attachment output stage of the
+  // first subpass to finish and must happen before the color attachment
+  // output stage of the second subpass begins (after the previous render
+  // pass finishes)
+  subpassDependencies[1].srcSubpass = 0; // our subpass is the source
+  subpassDependencies[1].srcStageMask =
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // wait for color
+                                                     // attachment output stage
+  subpassDependencies[1].srcAccessMask =
+      VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT; // wait until color attachment is no
+                                            // longer being read from or written
+  // before starting the next render pass
+  subpassDependencies[1].dstSubpass =
+      VK_SUBPASS_EXTERNAL; // subpass index of destination of dependency is
+                           // external to the render pass
+  subpassDependencies[1].dstStageMask =
+      VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT; // before starting the next render
+                                            // pass
+  subpassDependencies[1].dstAccessMask =
+      VK_ACCESS_MEMORY_READ_BIT; // wait until memory is no longer being read
+  subpassDependencies[1].dependencyFlags = 0;
+
+  // create info for render pass creation
   VkRenderPassCreateInfo renderPassCreateInfo = {};
   renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
   renderPassCreateInfo.attachmentCount =
       1; // number of attachments in render pass
   renderPassCreateInfo.pAttachments =
-      &colorAttachment; // list of attachments in render pass
+      &colorAttachment;                  // list of attachments in render pass
+  renderPassCreateInfo.subpassCount = 1; // number of subpasses in render pass
+  renderPassCreateInfo.pSubpasses =
+      &subpass; // list of subpasses in render pass
+  renderPassCreateInfo.dependencyCount =
+      static_cast<uint32_t>(subpassDependencies.size()); // number of subpass
+                                                         // dependencies
+  renderPassCreateInfo.pDependencies =
+      subpassDependencies.data(); // list of subpass dependencies
+
+  VkResult result = vkCreateRenderPass(
+      mainDevice.logicalDevice, &renderPassCreateInfo, nullptr, &renderPass);
+  if (result != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create render pass");
+  }
 }
 
 void VulkanRenderer::createGraphicsPipeline() {
@@ -553,9 +647,51 @@ void VulkanRenderer::createGraphicsPipeline() {
     throw std::runtime_error("Failed to create pipeline layout");
   }
 
-  // todo depth and stencil testing
+  // depth and stencil testing
 
-  // render pass
+  // graphics pipeline create info
+  VkGraphicsPipelineCreateInfo pipelineCreateInfo = {};
+  pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+  pipelineCreateInfo.stageCount = 2;         // number of shader stages
+  pipelineCreateInfo.pStages = shaderStages; // list of shader stages
+  pipelineCreateInfo.pVertexInputState =
+      &vertexInputCreateInfo; // vertex input stage create info
+  pipelineCreateInfo.pInputAssemblyState =
+      &inputAssemblyCreateInfo; // input assembly stage create info
+  pipelineCreateInfo.pViewportState =
+      &viewportStateCreateInfo; // viewport and scissor stage create info
+  pipelineCreateInfo.pDynamicState = nullptr; // dynamic state
+  pipelineCreateInfo.pRasterizationState =
+      &rasterizerCreateInfo; // rasterization stage create info
+  pipelineCreateInfo.pMultisampleState =
+      &multisamplingCreateInfo; // multisampling stage create info
+  pipelineCreateInfo.pDepthStencilState =
+      nullptr; // depth and stencil state create info (not using depth or
+               // stencil
+  pipelineCreateInfo.pColorBlendState =
+      &colorBlendingCreateInfo; // color blending stage create info
+  pipelineCreateInfo.layout =
+      pipelineLayout; // pipeline layout to use for pipeline
+  pipelineCreateInfo.renderPass = renderPass; // render pass to use for pipeline
+  pipelineCreateInfo.subpass =
+      0; // subpass index of render pass to use for pipeline
+
+  // pipeline derivatives : can create multiple pipelines that derive from a
+  // base pipeline to save time during pipeline creation, if base pipeline is
+  // not yet created, can use pipeline index to reference it
+  pipelineCreateInfo.basePipelineHandle =
+      VK_NULL_HANDLE; // handle of an existing pipeline to derive from
+  pipelineCreateInfo.basePipelineIndex =
+      -1; // index of an existing pipeline in the same pipeline cache to derive
+          // from
+
+  // create graphics pipeline
+  result = vkCreateGraphicsPipelines(mainDevice.logicalDevice, VK_NULL_HANDLE,
+                                     1, &pipelineCreateInfo, nullptr,
+                                     &graphicsPipeline);
+  if (result != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create graphics pipeline");
+  }
 
   // destroy shader modules that are no long needed
   vkDestroyShaderModule(mainDevice.logicalDevice, fragShaderModule, nullptr);

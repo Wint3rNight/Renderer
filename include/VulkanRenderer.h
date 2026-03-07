@@ -8,6 +8,7 @@
 #include <set>
 #include <stdexcept>
 #include <vector>
+#include <array>
 
 #include "Utilities.h"
 
@@ -39,7 +40,9 @@ private:
   std::vector<SwapChainImage> swapChainImages;
 
   //pipeline
+  VkPipeline graphicsPipeline;
   VkPipelineLayout pipelineLayout;
+  VkRenderPass renderPass;
 
 
   // utils
