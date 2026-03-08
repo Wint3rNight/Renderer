@@ -3,6 +3,7 @@
 #include "VulkanValidation.h"
 
 #include <GLFW/glfw3.h>
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -57,6 +58,11 @@ int VulkanRenderer::init(GLFWwindow *newWindow) {
 }
 
 void VulkanRenderer::cleanup() {
+  vkDestroyCommandPool(mainDevice.logicalDevice, graphicsCommandPool, nullptr);
+  for (auto framebuffer : swapChainFramebuffers) {
+    vkDestroyFramebuffer(mainDevice.logicalDevice, framebuffer, nullptr);
+  }
+
   vkDestroyPipeline(mainDevice.logicalDevice, graphicsPipeline, nullptr);
 
   vkDestroyPipelineLayout(mainDevice.logicalDevice, pipelineLayout, nullptr);
@@ -698,6 +704,78 @@ void VulkanRenderer::createGraphicsPipeline() {
   vkDestroyShaderModule(mainDevice.logicalDevice, vertShaderModule, nullptr);
 }
 
+void VulkanRenderer::createFramebuffers() {
+  swapChainFramebuffers.resize(
+      swapChainImages.size()); // resize fb list to no.of swapchain images
+                               // create framebuffer for each swap chain image
+  for (size_t i = 0; i < swapChainImages.size(); i++) {
+    std::array<VkImageView, 1> attachments = {swapChainImages[i].imageView};
+
+    VkFramebufferCreateInfo framebufferCreateInfo = {};
+    framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    framebufferCreateInfo.renderPass = renderPass; // render pass to use
+    framebufferCreateInfo.attachmentCount = static_cast<uint32_t>(
+        attachments.size()); // number of attachments in framebuffer (only color
+                             // attachment)
+    framebufferCreateInfo.pAttachments =
+        attachments.data(); // list of attachments(1:1 with render pass)
+    framebufferCreateInfo.width = swapChainExtent.width;
+    framebufferCreateInfo.height = swapChainExtent.height;
+    framebufferCreateInfo.layers =
+        1; // number of layers in framebuffer (1 unless doing stereoscopic 3D)
+
+    VkResult result =
+        vkCreateFramebuffer(mainDevice.logicalDevice, &framebufferCreateInfo,
+                            nullptr, &swapChainFramebuffers[i]);
+    if (result != VK_SUCCESS) {
+      throw std::runtime_error("Failed to create framebuffer");
+    }
+  }
+}
+
+void VulkanRenderer::createCommandPool() {
+  // get indices of queue families to create command pool for
+  QueueFamilyIndices queueFamilyIndices =
+      getQueueFamilies(mainDevice.physicalDevice);
+
+  VkCommandPoolCreateInfo poolInfo = {};
+  poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  poolInfo.queueFamilyIndex =
+      queueFamilyIndices.graphicsFamily; // command buffers from this pool will
+                                         // be submitted to this queue family
+  poolInfo.flags = 0;                    // optional flags for command pool
+  // create graphics queue family command pool
+  VkResult result = vkCreateCommandPool(mainDevice.logicalDevice, &poolInfo,
+                                        nullptr, &graphicsCommandPool);
+  if (result != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create command pool");
+  }
+}
+
+void VulkanRenderer::createCommandBuffers() {
+  commandBuffers.resize(
+      swapChainFramebuffers.size()); // resize cb list to no. of framebuffers
+
+  VkCommandBufferAllocateInfo cbAllocInfo = {};
+  cbAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  cbAllocInfo.commandPool =
+      graphicsCommandPool; // command pool to allocate from
+  cbAllocInfo.level =
+      VK_COMMAND_BUFFER_LEVEL_PRIMARY; // level of the command buffers (primary
+                                       // can be submitted, secondary
+                                       // cannot(primary executed by queues,
+                                       // secondary executed by primary))
+  cbAllocInfo.commandBufferCount = static_cast<uint32_t>(
+      commandBuffers.size()); // number of
+                              // command buffers to allocate
+  // allocate command buffers and place handles in array of buffers
+  VkResult result = vkAllocateCommandBuffers(
+      mainDevice.logicalDevice, &cbAllocInfo, commandBuffers.data());
+  if (result != VK_SUCCESS) {
+    throw std::runtime_error("Failed to allocate command buffers");
+  }
+}
+
 void VulkanRenderer::getPhysicalDevice() {
   // enumerate physical devices the vkinstance can access
   uint32_t deviceCount = 0;
@@ -936,7 +1014,8 @@ VkSurfaceFormatKHR VulkanRenderer::chooseBestSurfaceFormat(
 
 VkPresentModeKHR VulkanRenderer::chooseBestPresentationMode(
     const std::vector<VkPresentModeKHR> &presentationModes) {
-  // look for mailbox presentation mode, best for triple buffering, low latency
+  // look for mailbox presentation mode, best for triple buffering, low
+  // latency
   for (const auto &presentationMode : presentationModes) {
     if (presentationMode == VK_PRESENT_MODE_MAILBOX_KHR) {
       return presentationMode;
@@ -947,8 +1026,8 @@ VkPresentModeKHR VulkanRenderer::chooseBestPresentationMode(
 
 VkExtent2D VulkanRenderer::chooseSwapExtent(
     const VkSurfaceCapabilitiesKHR &surfaceCapabilities) {
-  // if current extent is max, then extent can vary, so we set it to the window
-  // size
+  // if current extent is max, then extent can vary, so we set it to the
+  // window size
   if (surfaceCapabilities.currentExtent.width !=
       std::numeric_limits<uint32_t>::max()) {
     return surfaceCapabilities.currentExtent;
@@ -985,14 +1064,16 @@ VkImageView VulkanRenderer::createImageView(VkImage image, VkFormat format,
       VK_IMAGE_VIEW_TYPE_2D;      // type of image (1D, 2D, 3D, cube)
   viewCreateInfo.format = format; // format of the image data
   viewCreateInfo.components.r =
-      VK_COMPONENT_SWIZZLE_IDENTITY; // allows remapping of color to other color
+      VK_COMPONENT_SWIZZLE_IDENTITY; // allows remapping of color to other
+                                     // color
   viewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
   viewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
   viewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
   // subresourceRange describes what the image's purpose is and which part of
   // the image to access
   viewCreateInfo.subresourceRange.aspectMask =
-      aspectFlags; // which aspect of the image to view (color, depth, stencil)
+      aspectFlags; // which aspect of the image to view (color, depth,
+                   // stencil)
   viewCreateInfo.subresourceRange.baseMipLevel =
       0; // start mipmap level to view from
   viewCreateInfo.subresourceRange.levelCount =
@@ -1021,8 +1102,8 @@ VulkanRenderer::createShaderModule(const std::vector<char> &code) {
   shaderModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
   shaderModuleCreateInfo.codeSize = code.size();
   shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(
-      code.data()); // pointter to code data, need to be uint32_t pointer, so we
-                    // cast from char pointer
+      code.data()); // pointter to code data, need to be uint32_t pointer, so
+                    // we cast from char pointer
 
   VkShaderModule shaderModule;
   VkResult result =

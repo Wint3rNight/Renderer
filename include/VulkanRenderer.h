@@ -4,11 +4,11 @@
 #include <vulkan/vulkan_core.h>
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <set>
 #include <stdexcept>
 #include <vector>
-#include <array>
 
 #include "Utilities.h"
 
@@ -37,13 +37,19 @@ private:
   VkQueue presentationQueue;
   VkSurfaceKHR surface;
   VkSwapchainKHR swapchain;
-  std::vector<SwapChainImage> swapChainImages;
 
-  //pipeline
+  std::vector<SwapChainImage> swapChainImages;
+  std::vector<VkFramebuffer> swapChainFramebuffers;
+  std::vector<VkCommandBuffer>
+      commandBuffers; // what the fuck was i going to write here
+
+  // pipeline
   VkPipeline graphicsPipeline;
   VkPipelineLayout pipelineLayout;
   VkRenderPass renderPass;
 
+  // pools
+  VkCommandPool graphicsCommandPool;
 
   // utils
   VkFormat swapChainImageFormat;
@@ -57,6 +63,9 @@ private:
   void createSwapChain();
   void createRenderPass();
   void createGraphicsPipeline();
+  void createFramebuffers();
+  void createCommandPool();
+  void createCommandBuffers();
 
   // get functions
   void getPhysicalDevice();
