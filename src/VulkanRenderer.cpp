@@ -49,6 +49,10 @@ int VulkanRenderer::init(GLFWwindow *newWindow) {
     createSwapChain();
     createRenderPass();
     createGraphicsPipeline();
+    createFramebuffers();
+    createCommandPool();
+    createCommandBuffers();
+    recordCommands();
 
   } catch (const std::runtime_error &e) {
     printf("%s\n", e.what());
@@ -776,6 +780,58 @@ void VulkanRenderer::createCommandBuffers() {
   }
 }
 
+void VulkanRenderer::recordCommands() {
+  // info about the command buffer to begin recording commands into
+  VkCommandBufferBeginInfo bufferBeginInfo = {};
+  bufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  bufferBeginInfo.flags =
+      VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT; // buffer can be resubmitted
+                                                    // while it is already
+                                                    // pending execution
+  // infoo about the render pass to begin for the command buffer
+  VkRenderPassBeginInfo renderPassBeginInfo = {};
+  renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+  renderPassBeginInfo.renderPass = renderPass; // render pass to begin
+  renderPassBeginInfo.renderArea.offset = {
+      0, 0}; // offset of render area from the framebuffer
+  renderPassBeginInfo.renderArea.extent =
+      swapChainExtent; // extent of render area (starting from offset)
+  VkClearValue clearValues[] = {
+      {{0.6f, 0.65f, 0.4f, 1.0f}}}; // list of clear values for attachments,
+  renderPassBeginInfo.pClearValues =
+      clearValues; // list of clear values(todo: depth attachment clear value)
+  renderPassBeginInfo.clearValueCount = 1; // number of clear values in list
+                                           // (same as number of attachments)
+
+  for (size_t i = 0; i < commandBuffers.size(); i++) {
+    renderPassBeginInfo.framebuffer =
+        swapChainFramebuffers[i]; // framebuffer to use for render pass
+    // begin recording commands into command buffer
+    VkResult result = vkBeginCommandBuffer(commandBuffers[i], &bufferBeginInfo);
+    if (result != VK_SUCCESS) {
+      throw std::runtime_error("Failed to begin recording command buffer");
+    }
+
+    vkCmdBeginRenderPass(commandBuffers[i], &renderPassBeginInfo,
+                         VK_SUBPASS_CONTENTS_INLINE);
+
+    // bind the graphics pipeline so that it will be used for rendering
+    vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      graphicsPipeline);
+
+    // ececute a draw command with the pipeline
+    vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
+
+    vkCmdEndRenderPass(commandBuffers[i]);
+
+    // stop recording commands into command buffer
+    result = vkEndCommandBuffer(commandBuffers[i]);
+    if (result != VK_SUCCESS) {
+      throw std::runtime_error("Failed to stop recording command buffer");
+    }
+  }
+}
+
 void VulkanRenderer::getPhysicalDevice() {
   // enumerate physical devices the vkinstance can access
   uint32_t deviceCount = 0;
@@ -1069,8 +1125,8 @@ VkImageView VulkanRenderer::createImageView(VkImage image, VkFormat format,
   viewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
   viewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
   viewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-  // subresourceRange describes what the image's purpose is and which part of
-  // the image to access
+  // subresourceRange describes what the image's purpose is and which part
+  // of the image to access
   viewCreateInfo.subresourceRange.aspectMask =
       aspectFlags; // which aspect of the image to view (color, depth,
                    // stencil)
@@ -1102,8 +1158,8 @@ VulkanRenderer::createShaderModule(const std::vector<char> &code) {
   shaderModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
   shaderModuleCreateInfo.codeSize = code.size();
   shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(
-      code.data()); // pointter to code data, need to be uint32_t pointer, so
-                    // we cast from char pointer
+      code.data()); // pointter to code data, need to be uint32_t pointer,
+                    // so we cast from char pointer
 
   VkShaderModule shaderModule;
   VkResult result =

@@ -67,6 +67,9 @@ private:
   void createCommandPool();
   void createCommandBuffers();
 
+  //record functions
+  void recordCommands();
+
   // get functions
   void getPhysicalDevice();
 
