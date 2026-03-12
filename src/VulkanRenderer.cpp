@@ -4,6 +4,7 @@
 
 #include <GLFW/glfw3.h>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -53,6 +54,7 @@ int VulkanRenderer::init(GLFWwindow *newWindow) {
     createCommandPool();
     createCommandBuffers();
     recordCommands();
+    createSynchronization();
 
   } catch (const std::runtime_error &e) {
     printf("%s\n", e.what());
@@ -61,8 +63,81 @@ int VulkanRenderer::init(GLFWwindow *newWindow) {
   return 0;
 }
 
+void VulkanRenderer::draw() {
+
+  // wait for the fence to signal that command buffer has finished executing
+  vkWaitForFences(mainDevice.logicalDevice, 1, &drawFences[currentFrame],
+                  VK_TRUE, std::numeric_limits<uint64_t>::max());
+  // manually reset the fence to unsignaled state for the next frame
+  vkResetFences(mainDevice.logicalDevice, 1, &drawFences[currentFrame]);
+
+  // acquire an image from the swap chain and signal when it is available
+  uint32_t imageIndex;
+  vkAcquireNextImageKHR(
+      mainDevice.logicalDevice, swapchain, std::numeric_limits<uint64_t>::max(),
+      imageAvailable[currentFrame], VK_NULL_HANDLE, &imageIndex);
+
+  // submit command buffer to graphics queue for execution
+  // wait on the image to be available before starting execution, signal when
+  VkSubmitInfo submitInfo = {};
+  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submitInfo.waitSemaphoreCount = 1; // number of semaphores to wait on
+  submitInfo.pWaitSemaphores =
+      &imageAvailable[currentFrame]; // list of semaphores to wait on
+  VkPipelineStageFlags waitStages[] = {
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}; // pipeline stage to
+                                                      // wait at for each
+                                                      // semaphore in
+                                                      // pWaitSemaphores
+  submitInfo.pWaitDstStageMask =
+      waitStages; // list of pipeline stages to wait at for
+  // each semaphore in pWaitSemaphores
+  submitInfo.commandBufferCount = 1; // number of command buffers to submit
+  submitInfo.pCommandBuffers =
+      &commandBuffers[imageIndex];     // list of command buffers to submit
+  submitInfo.signalSemaphoreCount = 1; // number of semaphores to signal
+  submitInfo.pSignalSemaphores =
+      &renderFinished[currentFrame]; // list of semaphores to signal when
+                                     // command buffers have finished execution
+  // submit command buffer to graphics queue and execute
+  VkResult result =
+      vkQueueSubmit(graphicsQueue, 1, &submitInfo, drawFences[currentFrame]);
+  if (result != VK_SUCCESS) {
+    throw std::runtime_error("Failed to submit draw command buffer");
+  }
+
+  // present the current image to the swap chain
+  VkPresentInfoKHR presentInfo = {};
+  presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+  presentInfo.waitSemaphoreCount = 1; // number of semaphores to wait on
+  presentInfo.pWaitSemaphores =
+      &renderFinished[currentFrame]; // list of semaphores to wait on before
+                                     // presentation
+  presentInfo.swapchainCount = 1;    // number of swap chains to present to
+  presentInfo.pSwapchains =
+      &swapchain; // list of swap chains to present images to
+  presentInfo.pImageIndices =
+      &imageIndex; // list of image indices to present for each swap chai
+  // present the image
+  result = vkQueuePresentKHR(presentationQueue, &presentInfo);
+  if (result != VK_SUCCESS) {
+    throw std::runtime_error("Failed to present swap chain image");
+  }
+  currentFrame =
+      (currentFrame + 1) % MAX_FRAMES_DRAWS; // advance to the next frame
+}
+
 void VulkanRenderer::cleanup() {
+  // wait for the logical device to finish operations before destroying
+  // resources
+  vkDeviceWaitIdle(mainDevice.logicalDevice);
+  for (size_t i = 0; i < MAX_FRAMES_DRAWS; i++) {
+    vkDestroySemaphore(mainDevice.logicalDevice, renderFinished[i], nullptr);
+    vkDestroySemaphore(mainDevice.logicalDevice, imageAvailable[i], nullptr);
+    vkDestroyFence(mainDevice.logicalDevice, drawFences[i], nullptr);
+  }
   vkDestroyCommandPool(mainDevice.logicalDevice, graphicsCommandPool, nullptr);
+
   for (auto framebuffer : swapChainFramebuffers) {
     vkDestroyFramebuffer(mainDevice.logicalDevice, framebuffer, nullptr);
   }
@@ -780,14 +855,42 @@ void VulkanRenderer::createCommandBuffers() {
   }
 }
 
+void VulkanRenderer::createSynchronization() {
+  // resize synchronization primitive arrays to max number of frames that can be
+  // processed concurrently
+  imageAvailable.resize(MAX_FRAMES_DRAWS);
+  renderFinished.resize(MAX_FRAMES_DRAWS);
+  drawFences.resize(MAX_FRAMES_DRAWS);
+
+  // semaphore creation info
+  VkSemaphoreCreateInfo semaphoreCreateInfo = {};
+  semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+  // fence creation info
+  VkFenceCreateInfo fenceCreateInfo = {};
+  fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  fenceCreateInfo.flags =
+      VK_FENCE_CREATE_SIGNALED_BIT; // create in signaled state so that first
+                                    // frame can be rendered without waiting
+
+  // create semaphores
+  for (size_t i = 0; i < MAX_FRAMES_DRAWS; i++) {
+    if (vkCreateSemaphore(mainDevice.logicalDevice, &semaphoreCreateInfo,
+                          nullptr, &imageAvailable[i]) != VK_SUCCESS ||
+        vkCreateSemaphore(mainDevice.logicalDevice, &semaphoreCreateInfo,
+                          nullptr, &renderFinished[i]) != VK_SUCCESS ||
+        vkCreateFence(mainDevice.logicalDevice, &fenceCreateInfo, nullptr,
+                      &drawFences[i]) != VK_SUCCESS) {
+      throw std::runtime_error("Failed to create synchronization primitives");
+    }
+  }
+}
+
 void VulkanRenderer::recordCommands() {
   // info about the command buffer to begin recording commands into
   VkCommandBufferBeginInfo bufferBeginInfo = {};
   bufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  bufferBeginInfo.flags =
-      VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT; // buffer can be resubmitted
-                                                    // while it is already
-                                                    // pending execution
+
   // infoo about the render pass to begin for the command buffer
   VkRenderPassBeginInfo renderPassBeginInfo = {};
   renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
