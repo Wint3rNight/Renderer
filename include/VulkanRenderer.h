@@ -62,6 +62,7 @@ private:
   std::vector<VkSemaphore> imageAvailable;
   std::vector<VkSemaphore> renderFinished;
   std::vector<VkFence> drawFences;
+  std::vector<VkFence> imagesInFlight;//crash fix
 
   // vulkan functions
   // create functions
@@ -69,6 +70,8 @@ private:
   void createLogicalDevice();
   void createSurface();
   void createSwapChain();
+  void recreateSwapChain();
+  void cleanupSwapChain();
   void createRenderPass();
   void createGraphicsPipeline();
   void createFramebuffers();
@@ -81,6 +84,7 @@ private:
 
   // get functions
   void getPhysicalDevice();
+  int rateDeviceSuitability(VkPhysicalDevice device);
 
   // support functions
   // checker functions

@@ -6,7 +6,7 @@
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
-const int MAX_FRAMES_DRAWS = 2;
+const int MAX_FRAMES_DRAWS = 3;
 
 const std::vector<const char *> deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME};

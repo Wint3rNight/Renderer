@@ -69,14 +69,22 @@ void VulkanRenderer::draw() {
   vkWaitForFences(mainDevice.logicalDevice, 1, &drawFences[currentFrame],
                   VK_TRUE, std::numeric_limits<uint64_t>::max());
   // manually reset the fence to unsignaled state for the next frame
-  vkResetFences(mainDevice.logicalDevice, 1, &drawFences[currentFrame]);
+  /*  vkResetFences(mainDevice.logicalDevice, 1, &drawFences[currentFrame]); */
 
   // acquire an image from the swap chain and signal when it is available
   uint32_t imageIndex;
   vkAcquireNextImageKHR(
       mainDevice.logicalDevice, swapchain, std::numeric_limits<uint64_t>::max(),
       imageAvailable[currentFrame], VK_NULL_HANDLE, &imageIndex);
+  if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) { // crash fix
+    // If so, wait for the fence associated with that image
+    vkWaitForFences(mainDevice.logicalDevice, 1, &imagesInFlight[imageIndex],
+                    VK_TRUE, UINT64_MAX);
+  }
+  imagesInFlight[imageIndex] = drawFences[currentFrame];
 
+  vkResetFences(mainDevice.logicalDevice, 1,
+                &drawFences[currentFrame]); // crash fix
   // submit command buffer to graphics queue for execution
   // wait on the image to be available before starting execution, signal when
   VkSubmitInfo submitInfo = {};
@@ -120,7 +128,10 @@ void VulkanRenderer::draw() {
       &imageIndex; // list of image indices to present for each swap chai
   // present the image
   result = vkQueuePresentKHR(presentationQueue, &presentInfo);
-  if (result != VK_SUCCESS) {
+  if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+    recreateSwapChain();
+    return;
+  } else if (result != VK_SUCCESS) {
     throw std::runtime_error("Failed to present swap chain image");
   }
   currentFrame =
@@ -128,6 +139,8 @@ void VulkanRenderer::draw() {
 }
 
 void VulkanRenderer::cleanup() {
+  vkDeviceWaitIdle(mainDevice.logicalDevice);
+  cleanupSwapChain();
   // wait for the logical device to finish operations before destroying
   // resources
   vkDeviceWaitIdle(mainDevice.logicalDevice);
@@ -420,6 +433,47 @@ void VulkanRenderer::createSwapChain() {
     swapChainImages.push_back(swapChainImage);
   }
 }
+
+//crash fix
+void VulkanRenderer::cleanupSwapChain() {
+
+  for (auto framebuffer : swapChainFramebuffers) {
+    vkDestroyFramebuffer(mainDevice.logicalDevice, framebuffer, nullptr);
+  }
+  swapChainFramebuffers.clear();
+
+  for (auto image : swapChainImages) {
+    vkDestroyImageView(mainDevice.logicalDevice, image.imageView, nullptr);
+  }
+  swapChainImages.clear();
+
+  if (swapchain != VK_NULL_HANDLE) {
+    vkDestroySwapchainKHR(mainDevice.logicalDevice, swapchain, nullptr);
+    swapchain = VK_NULL_HANDLE;
+  }
+}
+
+void VulkanRenderer::recreateSwapChain() {
+  int width = 0, height = 0;
+  glfwGetFramebufferSize(window, &width, &height);
+  while (width == 0 || height == 0) {
+    glfwGetFramebufferSize(window, &width, &height);
+    glfwWaitEvents();
+  }
+  vkDeviceWaitIdle(mainDevice.logicalDevice);
+
+  vkResetCommandPool(mainDevice.logicalDevice, graphicsCommandPool, 0);
+
+  cleanupSwapChain();
+  createSwapChain();
+
+  imagesInFlight.assign(swapChainImages.size(), VK_NULL_HANDLE);
+
+  createFramebuffers();
+  createCommandBuffers();
+  recordCommands();
+}
+//crash fox
 
 void VulkanRenderer::createRenderPass() {
   // color attachment of render pass
@@ -822,7 +876,7 @@ void VulkanRenderer::createCommandPool() {
   poolInfo.queueFamilyIndex =
       queueFamilyIndices.graphicsFamily; // command buffers from this pool will
                                          // be submitted to this queue family
-  poolInfo.flags = 0;                    // optional flags for command pool
+  poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
   // create graphics queue family command pool
   VkResult result = vkCreateCommandPool(mainDevice.logicalDevice, &poolInfo,
                                         nullptr, &graphicsCommandPool);
@@ -861,6 +915,8 @@ void VulkanRenderer::createSynchronization() {
   imageAvailable.resize(MAX_FRAMES_DRAWS);
   renderFinished.resize(MAX_FRAMES_DRAWS);
   drawFences.resize(MAX_FRAMES_DRAWS);
+
+  imagesInFlight.resize(swapChainImages.size(), VK_NULL_HANDLE); // crash fix
 
   // semaphore creation info
   VkSemaphoreCreateInfo semaphoreCreateInfo = {};
@@ -935,6 +991,20 @@ void VulkanRenderer::recordCommands() {
   }
 }
 
+int VulkanRenderer::rateDeviceSuitability(VkPhysicalDevice device) {
+  VkPhysicalDeviceProperties deviceProperties;
+  vkGetPhysicalDeviceProperties(device, &deviceProperties);
+  int score = 0;
+  // Discrete GPUs have a significant performance advantage
+  if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+    score += 1000;
+  }
+  if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+    score += 100;
+  }
+  return score;
+}
+
 void VulkanRenderer::getPhysicalDevice() {
   // enumerate physical devices the vkinstance can access
   uint32_t deviceCount = 0;
@@ -948,24 +1018,32 @@ void VulkanRenderer::getPhysicalDevice() {
   std::vector<VkPhysicalDevice> deviceList(deviceCount);
   vkEnumeratePhysicalDevices(instance, &deviceCount, deviceList.data());
 
+  VkPhysicalDevice bestDevice = VK_NULL_HANDLE;
+  int highestScore = -1;
   for (const auto &device : deviceList) {
     if (checkDeviceSuitable(device)) {
-      mainDevice.physicalDevice = device;
-
-      VkPhysicalDeviceProperties deviceProperties;
-      vkGetPhysicalDeviceProperties(mainDevice.physicalDevice,
-                                    &deviceProperties);
-
-      printf("Selected GPU: %s\n", deviceProperties.deviceName);
-      printf("Device Type: %d\n", deviceProperties.deviceType);
-      printf("Total Devices Found %d\n", deviceCount);
-
-      printf("API Version: %d.%d.%d\n",
-             VK_VERSION_MAJOR(deviceProperties.apiVersion),
-             VK_VERSION_MINOR(deviceProperties.apiVersion),
-             VK_VERSION_PATCH(deviceProperties.apiVersion));
-      break;
+      int score = rateDeviceSuitability(device);
+      if (score > highestScore) {
+        bestDevice = device;
+        highestScore = score;
+      }
     }
+  }
+
+  if (bestDevice != VK_NULL_HANDLE) {
+    mainDevice.physicalDevice = bestDevice;
+    VkPhysicalDeviceProperties deviceProperties;
+    vkGetPhysicalDeviceProperties(mainDevice.physicalDevice, &deviceProperties);
+
+    printf("Selected GPU: %s\n", deviceProperties.deviceName);
+    printf("Device Type: %d\n", deviceProperties.deviceType);
+    printf("Total Devices Found %d\n", deviceCount);
+    printf("API Version: %d.%d.%d\n",
+           VK_VERSION_MAJOR(deviceProperties.apiVersion),
+           VK_VERSION_MINOR(deviceProperties.apiVersion),
+           VK_VERSION_PATCH(deviceProperties.apiVersion));
+  } else {
+    throw std::runtime_error("Failed to find a suitable GPU");
   }
 }
 
