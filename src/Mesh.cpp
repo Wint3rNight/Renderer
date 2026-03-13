@@ -1,96 +1,112 @@
 #include "Mesh.h"
+#include "Utilities.h"
 #include <cstring>
 #include <vulkan/vulkan_core.h>
 
+Mesh::Mesh() {}
+
 Mesh::Mesh(VkPhysicalDevice newPhysicalDevice, VkDevice newDevice,
-           std::vector<Vertex> *vertices) {
+           VkQueue transferQueue, VkCommandPool transferCommandPool,
+           std::vector<Vertex> *vertices, std::vector<uint32_t> *indices) {
   vertexCount = vertices->size();
+  indexCount = indices->size();
   physicalDevice = newPhysicalDevice;
   device = newDevice;
-  createVertexBuffer(vertices);
+  createVertexBuffer(transferQueue, transferCommandPool, vertices);
+  createIndexBuffer(transferQueue, transferCommandPool, indices);
 }
 
 int Mesh::getVertexCount() { return vertexCount; }
-
 VkBuffer Mesh::getVertexBuffer() { return vertexBuffer; }
+int Mesh::getIndexCount() { return indexCount; }
+VkBuffer Mesh::getIndexBuffer() { return indexBuffer; }
 
-void Mesh::destroyVertexBuffer() {
+void Mesh::destroyBuffers() {
   vkDestroyBuffer(device, vertexBuffer, nullptr);
   vkFreeMemory(device, vertexBufferMemory, nullptr);
+  vkDestroyBuffer(device, indexBuffer, nullptr);
+  vkFreeMemory(device, indexBufferMemory, nullptr);
 }
-Mesh::Mesh() {}
 Mesh::~Mesh() {}
 
-VkBuffer Mesh::createVertexBuffer(std::vector<Vertex> *vertices) {
-  // information to create the buffer(assigining memory not included)
-  VkBufferCreateInfo bufferInfo = {};
-  bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  bufferInfo.size =
-      sizeof(Vertex) * vertices->size(); // size of buffer in bytes
-  bufferInfo.usage =
-      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT; // type of buffer we want to create
-  bufferInfo.sharingMode =
-      VK_SHARING_MODE_EXCLUSIVE; // buffer is shared between multiple
-                                 // queue families or not
+void Mesh::createVertexBuffer(VkQueue transferQueue,
+                              VkCommandPool transferCommandPool,
+                              std::vector<Vertex> *vertices) {
 
-  VkResult result = vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer);
-  if (result != VK_SUCCESS) {
-    throw std::runtime_error("failed to create vertex buffer!");
-  }
+  // get size of buffer in bytes
+  VkDeviceSize bufferSize = sizeof(Vertex) * vertices->size();
 
-  // get memory requirements for the buffer to allocate enough memory
-  VkMemoryRequirements memRequirements;
-  vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
+  // temp buffer to stage vertex data before transfering to the vertex buffer
+  VkBuffer stagingBuffer;
+  VkDeviceMemory stagingBufferMemory;
 
-  // allocate memory for the buffer
-  VkMemoryAllocateInfo memoryAllocateInfo = {};
-  memoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  memoryAllocateInfo.allocationSize =
-      memRequirements.size; // size of allocation in bytes
-  memoryAllocateInfo.memoryTypeIndex = findMemoryTypeIndex(
-      memRequirements.memoryTypeBits, // index of memory type on physical device
-                                      // that has required bit flags
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  // VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT means that we can map the memory and
-  // write to it from the CPU and VK_MEMORY_PROPERTY_HOST_COHERENT_BIT means
-  // that the memory will automatically be flushed
-
-  // allocate memory for the buffer
-  result = vkAllocateMemory(device, &memoryAllocateInfo, nullptr,
-                            &vertexBufferMemory);
-  if (result != VK_SUCCESS) {
-    throw std::runtime_error("failed to allocate vertex buffer memory!");
-  }
-
-  // bind the buffer with the allocated memory
-  vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+  // create the vertex buffer and allocate memory for it
+  createBuffer(physicalDevice, device, bufferSize,
+               VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+               &stagingBuffer, &stagingBufferMemory);
 
   // map memory to vertex buffer and copy vertex data to it
   void *data; // create a pointer to point in normal memory
-  vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0,
+  vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0,
               &data); // map the vertex buffer memory to the pointer
   memcpy(data, vertices->data(),
-         (size_t)bufferInfo.size); // copy vertex data to mapped memory
-  vkUnmapMemory(device, vertexBufferMemory); // unmap the memory
+         (size_t)bufferSize); // copy vertex data to mapped memory
+  vkUnmapMemory(device, stagingBufferMemory); // unmap the memory
 
-  return vertexBuffer;
+  // create buffer with transfer_destination_bit to mark as recepient of
+  // transfer(also vertex buffer) and device_local_bit since buffer will be used
+  // on the GPU and not updated very often. Only accessible from the GPU, not
+  // the CPU
+  createBuffer(
+      physicalDevice, device, bufferSize,
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &vertexBuffer, &vertexBufferMemory);
+
+  // copy the vertex buffer data from the staging buffer to the vertex buffer
+  copyBuffer(device, transferQueue, transferCommandPool, stagingBuffer,
+             vertexBuffer, bufferSize);
+
+  // clean up staging buffer and its memory since data has been transfered
+  vkDestroyBuffer(device, stagingBuffer, nullptr);
+  vkFreeMemory(device, stagingBufferMemory, nullptr);
 }
 
-uint32_t Mesh::findMemoryTypeIndex(
-    uint32_t allowedTypes,
-    VkMemoryPropertyFlags
-        properties) { // get properties of physical device memory
-  VkPhysicalDeviceMemoryProperties memoryProperties;
-  vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+void Mesh::createIndexBuffer(VkQueue transferQueue,
+                             VkCommandPool transferCommandPool,
+                             std::vector<uint32_t> *indices) {
+  // get size of buffer in bytes
+  VkDeviceSize bufferSize = sizeof(uint32_t) * indices->size();
 
-  for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++) {
-    // check if memory type is among allowed types and has required properties
-    if ((allowedTypes & (1 << i)) &&
-        (memoryProperties.memoryTypes[i].propertyFlags & properties) ==
-            properties) { // desired properity bit flags are set
-      return i;           // return index of memory type
-    }
-  }
-  throw std::runtime_error("Failed to find suitable memory type!");
+  // temp buffer to stage index data before transfering to the index buffer
+  VkBuffer stagingBuffer;
+  VkDeviceMemory stagingBufferMemory;
+
+  // create the index buffer and allocate memory for it
+  createBuffer(physicalDevice, device, bufferSize,
+               VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+               &stagingBuffer, &stagingBufferMemory);
+
+  // map memory to index buffer and copy index data to it
+  void *data;
+  vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+  memcpy(data, indices->data(), (size_t)bufferSize);
+  vkUnmapMemory(device, stagingBufferMemory);
+
+  //create buffer for index data on GPu access only area
+  createBuffer(
+      physicalDevice, device, bufferSize,
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &indexBuffer, &indexBufferMemory);
+
+  // copy the index buffer data from the staging buffer to the vertex buffer
+  copyBuffer(device, transferQueue, transferCommandPool, stagingBuffer,
+             indexBuffer, bufferSize);
+
+  // clean up staging buffer and its memory since data has been transfered
+  vkDestroyBuffer(device, stagingBuffer, nullptr);
+  vkFreeMemory(device, stagingBufferMemory, nullptr);
 }

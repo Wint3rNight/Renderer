@@ -30,7 +30,7 @@ private:
   int currentFrame = 0;
 
   //scene objects
-  Mesh firstMesh;
+  std::vector<Mesh> mesheList;
 
   // vk components
   // main
