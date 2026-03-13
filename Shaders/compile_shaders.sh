@@ -17,3 +17,5 @@ for shader in $FRAG_SHADERS; do
 done
 
 echo "Done. Shaders compiled to .spv"
+
+#chmod +x compile_shaders.sh then ./compile_shaders.sh

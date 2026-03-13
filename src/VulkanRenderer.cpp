@@ -47,6 +47,21 @@ int VulkanRenderer::init(GLFWwindow *newWindow) {
     createSurface();
     getPhysicalDevice();
     createLogicalDevice();
+
+    // create a mesh
+    std::vector<Vertex> meshVertices = {
+        {{0.4f, -0.4f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+        {{0.4f, 0.4f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+        {{-0.4f, 0.4f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+
+        {{-0.4f, 0.4f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+        {{-0.4f, -0.4f, 0.0f}, {1.0f, 1.0f, 0.0f}},
+        {{0.4f, -0.4f, 0.0f}, {1.0f, 0.0f, 0.0f}}
+
+    };
+    firstMesh = Mesh(mainDevice.physicalDevice, mainDevice.logicalDevice,
+                     &meshVertices);
+
     createSwapChain();
     createRenderPass();
     createGraphicsPipeline();
@@ -143,7 +158,7 @@ void VulkanRenderer::cleanup() {
   cleanupSwapChain();
   // wait for the logical device to finish operations before destroying
   // resources
-  vkDeviceWaitIdle(mainDevice.logicalDevice);
+  firstMesh.destroyVertexBuffer();
   for (size_t i = 0; i < MAX_FRAMES_DRAWS; i++) {
     vkDestroySemaphore(mainDevice.logicalDevice, renderFinished[i], nullptr);
     vkDestroySemaphore(mainDevice.logicalDevice, imageAvailable[i], nullptr);
@@ -434,7 +449,7 @@ void VulkanRenderer::createSwapChain() {
   }
 }
 
-//crash fix
+// crash fix
 void VulkanRenderer::cleanupSwapChain() {
 
   for (auto framebuffer : swapChainFramebuffers) {
@@ -473,7 +488,7 @@ void VulkanRenderer::recreateSwapChain() {
   createCommandBuffers();
   recordCommands();
 }
-//crash fox
+// crash fox
 
 void VulkanRenderer::createRenderPass() {
   // color attachment of render pass
@@ -638,18 +653,48 @@ void VulkanRenderer::createGraphicsPipeline() {
   VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderCreateInfo,
                                                     fragShaderCreateInfo};
 
+  // how the data for a single vertex looks like as a whole
+  VkVertexInputBindingDescription bindingDescription = {};
+  bindingDescription.binding = 0; // can bind multiple streams of data
+  bindingDescription.stride = sizeof(Vertex); // size of a single vertex
+  bindingDescription.inputRate =
+      VK_VERTEX_INPUT_RATE_VERTEX; // how to move to the next data entry after
+                                   // each vertex
+  // VK_VERTEX_INPUT_RATE_INSTANCE forinstancing
+  // VK_VERTEX_INPUT_RATE_VERTEX to move to the next vertex
+  // VK_VERTEX_INPUT_RATE_INDEX to move to the next index
+
+  // how the data for the attributes is described
+  std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = {};
+  // POSITION ATTRIBUTE
+  attributeDescriptions[0].binding =
+      0; // which binding the per vertex data comes from (should be same as
+         // binding description binding)
+  attributeDescriptions[0].location =
+      0; // location in shader where data will be read from
+  attributeDescriptions[0].format =
+      VK_FORMAT_R32G32B32_SFLOAT; // format of the data (aslo size of the data)
+  attributeDescriptions[0].offset =
+      offsetof(Vertex, pos); // where the data is located in the vertex
+
+  // COLOR ATTRIBUTE
+  attributeDescriptions[1].binding = 0;
+  attributeDescriptions[1].location = 1;
+  attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attributeDescriptions[1].offset = offsetof(Vertex, col);
+
   // vertex input stage creation info
   VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo = {};
   vertexInputCreateInfo.sType =
       VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
   vertexInputCreateInfo.vertexBindingDescriptionCount =
-      0; // number of vertex binding descriptions
+      1; // number of vertex binding descriptions
   vertexInputCreateInfo.pVertexBindingDescriptions =
-      nullptr; // list of vertex binding descriptions
-  vertexInputCreateInfo.vertexAttributeDescriptionCount =
-      0; // number of vertex attribute descriptions
+      &bindingDescription; // list of vertex binding descriptions
+  vertexInputCreateInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(
+      attributeDescriptions.size()); // number of vertex attribute descriptions
   vertexInputCreateInfo.pVertexAttributeDescriptions =
-      nullptr; // list of vertex attribute descriptions
+      attributeDescriptions.data(); // list of vertex attribute descriptions
 
   // input assembly stage creation info
   VkPipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo = {};
@@ -978,8 +1023,16 @@ void VulkanRenderer::recordCommands() {
     vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS,
                       graphicsPipeline);
 
+    VkBuffer vertexBuffers[] = {firstMesh.getVertexBuffer()}; // buffers to bind
+    VkDeviceSize offsets[] = {0}; // offsets into buffers to start from
+    vkCmdBindVertexBuffers(
+        commandBuffers[i], 0, 1, vertexBuffers,
+        offsets); // command to bind vertex buffers (also binds the vertex input
+                  // state specified during pipeline creation)
+
     // ececute a draw command with the pipeline
-    vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
+    vkCmdDraw(commandBuffers[i],
+              static_cast<uint32_t>(firstMesh.getVertexCount()), 1, 0, 0);
 
     vkCmdEndRenderPass(commandBuffers[i]);
 

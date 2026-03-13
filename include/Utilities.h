@@ -2,6 +2,7 @@
 
 #include <fstream>
 
+#include <glm/glm.hpp>
 #include <vector>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
@@ -10,6 +11,12 @@ const int MAX_FRAMES_DRAWS = 3;
 
 const std::vector<const char *> deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+// vertex data representation
+struct Vertex {
+  glm::vec3 pos; // position attribute for the vertex
+  glm::vec3 col; // color attribute for the vertex
+};
 
 // Keep only the general utility structures here
 struct QueueFamilyIndices {

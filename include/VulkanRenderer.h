@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include "Mesh.h"
+#include "VulkanValidation.h"
 #include "Utilities.h"
 
 class VulkanRenderer {
@@ -26,6 +28,9 @@ private:
   GLFWwindow *window;
 
   int currentFrame = 0;
+
+  //scene objects
+  Mesh firstMesh;
 
   // vk components
   // main
