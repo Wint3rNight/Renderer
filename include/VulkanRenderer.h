@@ -1,6 +1,9 @@
 #pragma once
+#include <sys/types.h>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <vulkan/vulkan_core.h>
 
 #include <algorithm>
@@ -11,8 +14,8 @@
 #include <vector>
 
 #include "Mesh.h"
-#include "VulkanValidation.h"
 #include "Utilities.h"
+#include "VulkanValidation.h"
 
 class VulkanRenderer {
 public:
@@ -20,6 +23,7 @@ public:
 
   int init(GLFWwindow *newWindow);
   void draw();
+  void updateModel(glm::mat4 newModel);
   void cleanup();
 
   ~VulkanRenderer();
@@ -29,8 +33,15 @@ private:
 
   int currentFrame = 0;
 
-  //scene objects
+  // scene objects
   std::vector<Mesh> mesheList;
+
+  // scene settings
+  struct MVP {
+    glm::mat4 projection;
+    glm::mat4 view;
+    glm::mat4 model;
+  } mvp;
 
   // vk components
   // main
@@ -51,6 +62,15 @@ private:
   std::vector<VkCommandBuffer>
       commandBuffers; // what the fuck was i going to write here
 
+  // descriptors
+  VkDescriptorSetLayout descriptorSetLayout;
+
+  VkDescriptorPool descriptorPool;
+  std::vector<VkDescriptorSet> descriptorSets;
+
+  std::vector<VkBuffer> uniformBuffers;
+  std::vector<VkDeviceMemory> uniformBufferMemory;
+
   // pipeline
   VkPipeline graphicsPipeline;
   VkPipelineLayout pipelineLayout;
@@ -67,7 +87,7 @@ private:
   std::vector<VkSemaphore> imageAvailable;
   std::vector<VkSemaphore> renderFinished;
   std::vector<VkFence> drawFences;
-  std::vector<VkFence> imagesInFlight;//crash fix
+  std::vector<VkFence> imagesInFlight; // crash fix
 
   // vulkan functions
   // create functions
@@ -78,11 +98,18 @@ private:
   void recreateSwapChain();
   void cleanupSwapChain();
   void createRenderPass();
+  void createDescriptorSetLayout();
   void createGraphicsPipeline();
   void createFramebuffers();
   void createCommandPool();
   void createCommandBuffers();
   void createSynchronization();
+
+  void createUniformBuffers();
+  void createDescriptorPool();
+  void createDescriptorSets();
+
+  void updateUniformBuffer(uint32_t imageIndex);
 
   // record functions
   void recordCommands();
