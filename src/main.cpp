@@ -1,5 +1,6 @@
 #include "VulkanRenderer.h"
 #include <GLFW/glfw3.h>
+#include <glm/ext/matrix_transform.hpp>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
@@ -43,8 +44,18 @@ int main() {
       angle -= 360.0f;
     }
 
-    vulkanRenderer.updateModel(glm::rotate(glm::mat4(1.0f), glm::radians(angle),
-                                           glm::vec3(0.0f, 0.0f, 1.0f)));
+    glm::mat4 firstModel(1.0f);
+    glm::mat4 secondModel(1.0f);
+
+    firstModel = glm::translate(firstModel, glm::vec3(-2.0f, 0.0f, -5.0f));
+    firstModel = glm::rotate(firstModel, glm::radians(angle),
+                             glm::vec3(0.0f, 0.0f, 1.0f));
+    secondModel = glm::translate(secondModel, glm::vec3(2.0f, 0.0f, -5.0f));
+    secondModel = glm::rotate(secondModel, glm::radians(-angle * 100.0f),
+                              glm::vec3(0.0f, 0.0f, 1.0f));
+
+    vulkanRenderer.updateModel(0, firstModel);
+    vulkanRenderer.updateModel(1, secondModel);
 
     vulkanRenderer.draw();
   }

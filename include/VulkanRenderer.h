@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <sys/types.h>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -23,7 +24,7 @@ public:
 
   int init(GLFWwindow *newWindow);
   void draw();
-  void updateModel(glm::mat4 newModel);
+  void updateModel(int modelId,glm::mat4 newModel);
   void cleanup();
 
   ~VulkanRenderer();
@@ -37,11 +38,10 @@ private:
   std::vector<Mesh> mesheList;
 
   // scene settings
-  struct MVP {
+  struct UboViewProjection {
     glm::mat4 projection;
     glm::mat4 view;
-    glm::mat4 model;
-  } mvp;
+  } uboViewProjection;
 
   // vk components
   // main
@@ -68,8 +68,16 @@ private:
   VkDescriptorPool descriptorPool;
   std::vector<VkDescriptorSet> descriptorSets;
 
-  std::vector<VkBuffer> uniformBuffers;
-  std::vector<VkDeviceMemory> uniformBufferMemory;
+  std::vector<VkBuffer> vpUniformBuffers;
+  std::vector<VkDeviceMemory> vpUniformBufferMemory;
+
+  std::vector<VkBuffer> modelDUniformBuffers;
+  std::vector<VkDeviceMemory> modelDUniformBufferMemory;
+
+  VkDeviceSize minUniformBufferOffset;
+  size_t modelUniformAlignment;
+
+  UboModel *modelTransferSpace;
 
   // pipeline
   VkPipeline graphicsPipeline;
@@ -109,7 +117,7 @@ private:
   void createDescriptorPool();
   void createDescriptorSets();
 
-  void updateUniformBuffer(uint32_t imageIndex);
+  void updateUniformBuffers(uint32_t imageIndex);
 
   // record functions
   void recordCommands();
@@ -117,6 +125,9 @@ private:
   // get functions
   void getPhysicalDevice();
   int rateDeviceSuitability(VkPhysicalDevice device);
+
+  // allocation functions
+  void allocateDynamicBufferTransferSpace();
 
   // support functions
   // checker functions

@@ -14,7 +14,13 @@ Mesh::Mesh(VkPhysicalDevice newPhysicalDevice, VkDevice newDevice,
   device = newDevice;
   createVertexBuffer(transferQueue, transferCommandPool, vertices);
   createIndexBuffer(transferQueue, transferCommandPool, indices);
+
+  uboModel.model = glm::mat4(1.0f);
 }
+
+void Mesh::setModel(glm::mat4 newModel) { uboModel.model = newModel; }
+
+UboModel Mesh::getModel() { return uboModel; }
 
 int Mesh::getVertexCount() { return vertexCount; }
 VkBuffer Mesh::getVertexBuffer() { return vertexBuffer; }
@@ -96,7 +102,7 @@ void Mesh::createIndexBuffer(VkQueue transferQueue,
   memcpy(data, indices->data(), (size_t)bufferSize);
   vkUnmapMemory(device, stagingBufferMemory);
 
-  //create buffer for index data on GPu access only area
+  // create buffer for index data on GPu access only area
   createBuffer(
       physicalDevice, device, bufferSize,
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
