@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <cstdint>
 #include <sys/types.h>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -24,7 +25,7 @@ public:
 
   int init(GLFWwindow *newWindow);
   void draw();
-  void updateModel(int modelId,glm::mat4 newModel);
+  void updateModel(int modelId, glm::mat4 newModel);
   void cleanup();
 
   ~VulkanRenderer();
@@ -35,7 +36,7 @@ private:
   int currentFrame = 0;
 
   // scene objects
-  std::vector<Mesh> mesheList;
+  std::vector<Mesh> meshList;
 
   // scene settings
   struct UboViewProjection {
@@ -64,6 +65,7 @@ private:
 
   // descriptors
   VkDescriptorSetLayout descriptorSetLayout;
+  VkPushConstantRange pushConstantRange;
 
   VkDescriptorPool descriptorPool;
   std::vector<VkDescriptorSet> descriptorSets;
@@ -74,10 +76,11 @@ private:
   std::vector<VkBuffer> modelDUniformBuffers;
   std::vector<VkDeviceMemory> modelDUniformBufferMemory;
 
-  VkDeviceSize minUniformBufferOffset;
-  size_t modelUniformAlignment;
-
-  UboModel *modelTransferSpace;
+  /*
+    VkDeviceSize minUniformBufferOffset;
+    size_t modelUniformAlignment;
+   */
+  // Model *modelTransferSpace;
 
   // pipeline
   VkPipeline graphicsPipeline;
@@ -107,6 +110,7 @@ private:
   void cleanupSwapChain();
   void createRenderPass();
   void createDescriptorSetLayout();
+  void createPushConstantRange();
   void createGraphicsPipeline();
   void createFramebuffers();
   void createCommandPool();
@@ -120,7 +124,7 @@ private:
   void updateUniformBuffers(uint32_t imageIndex);
 
   // record functions
-  void recordCommands();
+  void recordCommands(uint32_t currentImage);
 
   // get functions
   void getPhysicalDevice();
