@@ -1,3 +1,5 @@
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+
 #include "VulkanRenderer.h"
 #include <GLFW/glfw3.h>
 #include <glm/ext/matrix_transform.hpp>

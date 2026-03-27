@@ -63,6 +63,10 @@ private:
   std::vector<VkCommandBuffer>
       commandBuffers; // what the fuck was i going to write here
 
+  VkImage depthBufferImage;
+  VkDeviceMemory depthBufferImageMemory;
+  VkImageView depthBufferImageView;
+
   // descriptors
   VkDescriptorSetLayout descriptorSetLayout;
   VkPushConstantRange pushConstantRange;
@@ -112,6 +116,7 @@ private:
   void createDescriptorSetLayout();
   void createPushConstantRange();
   void createGraphicsPipeline();
+  void createDepthBufferImage();
   void createFramebuffers();
   void createCommandPool();
   void createCommandBuffers();
@@ -151,9 +156,18 @@ private:
       const std::vector<VkPresentModeKHR> &presentationModes);
   VkExtent2D
   chooseSwapExtent(const VkSurfaceCapabilitiesKHR &surfaceCapabilities);
+  VkFormat chooseSupportedFormat(const std::vector<VkFormat> &formats,
+                                 VkImageTiling tiling,
+                                 VkFormatFeatureFlags featuresFlags);
 
   // support create functions
+  VkImage createImage(uint32_t width, uint32_t height, VkFormat formats,
+                      VkImageTiling tiling, VkImageUsageFlags useFlags,
+                      VkMemoryPropertyFlags propFlags,
+                      VkDeviceMemory *imageMemory);
+
   VkImageView createImageView(VkImage image, VkFormat format,
                               VkImageAspectFlags aspectFlags);
+
   VkShaderModule createShaderModule(const std::vector<char> &code);
 };
