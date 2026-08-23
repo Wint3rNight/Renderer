@@ -4,68 +4,65 @@ A modular Vulkan renderer focused on the rendering architecture itself: deferred
 
 ## What It Renders
 
-The current demo loads a Sponza glTF scene as the environment and renders multiple DamagedHelmet instances as PBR test objects. The scene uses an HDR environment map for sky lighting and reflections, with a fly camera and an ImGui overlay for runtime tuning.
+Scenes are data-driven: `.scene` files in `Resources/Scenes/` declare the environment HDRI, camera, model placement, instanced rings, and per-object animation (spin / orbit / bob), and can be switched at runtime from the ImGui panel without restarting. The default scene is Crytek Sponza with a 64-helmet instanced ring; a second scene showcases animated objects (a turntable FlightHelmet and a patrolling DamagedHelmet). A fly camera and the ImGui overlay handle runtime tuning.
 
 At a high level, one frame looks like this:
 
 ```mermaid
 flowchart TD
     subgraph STARTUP ["Startup (once)"]
-        A["Assimp glTF / OBJ loading"] --> B["ModelManager\n(vertex/index buffers,\nbounding spheres,\nLOD generation via meshoptimizer)"]
-        A --> C["TextureManager\n(PBR texture sets,\nfallback textures,\npath-based deduplication)"]
-        H["HDRI .hdr file"] --> SKY["Equirect → cubemap\n(TextureManager)"]
-        SKY --> IRR["Compute shader:\nirradiance convolution"]
-        SKY --> PRE["Compute shader:\nprefiltered env map\n(5 mip levels)"]
-        LUT["BRDF LUT\n(precomputed 2D texture)"]
-        NOISE["SSAO noise\n(4×4 random vectors)"]
+        A["Assimp glTF loading"] --> B["ModelManager\n(vertex/index buffers, bounding\nspheres, LODs via meshoptimizer)"]
+        A --> C["TextureManager\n(bindless texture array, fallbacks,\nper-model-directory deduplication)"]
+        H["HDRI .hdr file"] --> SKY["Equirect → cubemap"]
+        SKY --> IRR["Compute: irradiance map"]
+        SKY --> PRE["Compute: prefiltered env map\n(5 mips)"]
+        LUT["BRDF LUT (pre-baked)"]
     end
 
-    subgraph SCENE ["Scene Setup"]
-        B --> SG["SceneNode tree\n(parent/child transforms)"]
-        C --> MAT["Per-mesh material\ndescriptor sets\n(albedo, normal, metallic,\nroughness, AO samplers)"]
+    subgraph SCENE ["Scene Setup (Resources/Scenes/*.scene)"]
+        SF["Scene file: camera, HDRI, models,\nrings, spin/orbit/bob animation"] --> SG["SceneNode tree\n(animated locals recomposed per frame)"]
+        B --> SG
     end
 
-    subgraph FRAME ["Per-Frame Render Passes"]
-        SG --> CULL["CPU frustum culling\n(Gribb-Hartmann planes,\nbounding-sphere test)"]
-        CULL --> LOD["LOD selection\n(camera distance →\nLOD 0 / 1 / 2)"]
+    subgraph FRAME ["One frame · 4 submits across 2 queues"]
+        CPU["CPU: animate nodes, frustum-cull,\nbuild mesh + transform SSBO records"] --> GB
 
-        LOD --> CSM["Pass 1 · CSM Shadow\n(4 cascades × depth-only render pass)\n→ 2D array depth texture"]
-        LOD --> PT["Pass 2 · Point Shadow\n(6 faces × depth-only render pass)\n→ cubemap depth texture"]
-        LOD --> GB["Pass 3 · G-Buffer\n(scene geometry + instanced draws)"]
-
-        GB --> GB0["GB0: R16G16B16A16_SFLOAT\nalbedo RGB + metallic"]
-        GB --> GB1["GB1: R16G16B16A16_SFLOAT\nworld normal RGB + roughness"]
-        GB --> GB2["GB2: R8G8B8A8_UNORM\nambient occlusion"]
-        GB --> DEP["Depth: D32_SFLOAT\n(sampled for position\nreconstruction)"]
-
-        GB0 --> LIT["Pass 4 · Deferred Lit\n(fullscreen triangle)"]
-        GB1 --> LIT
-        GB2 --> LIT
-        DEP --> LIT
-        CSM --> LIT
-        PT --> LIT
-        IRR --> LIT
-        PRE --> LIT
-        LUT --> LIT
-        NOISE --> LIT
-        SKY --> LIT
-
-        LIT --> |"Cook-Torrance PBR\n+ CSM/point shadows\n+ IBL ambient\n+ SSAO (async compute)\n+ SSGI one-bounce fill\n+ height fog\n+ skybox background"| LITBUF["Lit HDR buffer\n(R16G16B16A16_SFLOAT)"]
-
-        subgraph COMP ["Pass 5 · Composition (2 subpasses)"]
-            LITBUF --> SSR["Subpass 0: SSR composite\n(ray-march lit buffer +\nG-buffer depth/normals,\nbinary-search refinement,\nFresnel-weighted blend)"]
-            SSR --> COLBUF["Intermediate color buffer"]
-            COLBUF --> TONE["Subpass 1: TAA resolve\n+ AgX tonemap\n(input attachment read)"]
+        subgraph SUB1 ["Submit 1 · graphics queue"]
+            GB["G-buffer pass — GPU-driven:\ncompute frustum + HZB occlusion cull\n→ compacted indirect draws, bindless"] --> GBUF["GB0 albedo+metallic · GB1 normal+rough\nGB2 AO+cloth+geoNormal · depth"]
+            GB --> HZB["HZB compute build\n(depth pyramid for next frame's cull)"]
         end
 
-        TONE --> SWAP["Swapchain image"]
+        subgraph SUB2 ["Submit 2 · async compute queue"]
+            SSAO["SSAO compute\n(overlaps the shadow submit)"]
+        end
 
-        SWAP --> IMGUI["Pass 6 · ImGui overlay\n(loads swapchain image,\ndraws debug UI on top)"]
+        subgraph SUB3 ["Submit 3 · graphics queue"]
+            SHADOW["CSM ×4 cascades +\npoint cubemap ×6 faces (depth-only)"]
+        end
+
+        subgraph SUB4 ["Submit 4 · graphics queue"]
+            SSGI["SSGI half-res one-bounce\n(temporal history)"] --> LIT["Deferred lit: Cook-Torrance PBR\n+ IBL + shadows + SSAO + SSGI\n+ height fog + sky"]
+            LIT --> TRANS["Forward transparent\n(sorted back-to-front)"]
+            TRANS --> BLOOM["Bloom pyramid + histogram\nauto-exposure (compute)"]
+            BLOOM --> SSR["SSR composite (subpass 0)"]
+            SSR --> TAA["TAA resolve + AgX tonemap\n+ edge AA + sharpen (subpass 1)"]
+            TAA --> IMGUI["ImGui overlay\n(F1 hides for screenshots)"]
+        end
+
+        GBUF --> SSAO
+        GBUF --> SSGI
+        SSAO --> LIT
+        SHADOW --> LIT
         IMGUI --> PRESENT["vkQueuePresent"]
     end
 
-    MAT --> GB
+    IRR --> LIT
+    PRE --> LIT
+    LUT --> LIT
+    C --> GB
 ```
+
+Cross-submit edges are timeline-semaphore waits: the async-compute SSAO submit overlaps the shadow submit on the graphics queue, and the post submit waits on both.
 
 ## Feature Set
 
@@ -289,7 +286,6 @@ Resources/LUTs/          BRDF LUT
 Resources/Textures/      PBR texture sets
 third_party/             Vendored third-party code kept with the repo
 TODO.md                  Local development roadmap, ignored by git
-IMPLEMENTATION_NOTES.md  Local technical notes, ignored by git
 ```
 
 ## Current Status
