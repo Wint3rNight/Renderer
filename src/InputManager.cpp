@@ -22,6 +22,11 @@ void InputManager::init(GLFWwindow *newWindow) {
   glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
   if (glfwRawMouseMotionSupported())
     glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+
+  // Sticky keys: a press+release that both happen within one (long) frame —
+  // e.g. tapping a key during a scene-switch device-idle wait — still reads
+  // as GLFW_PRESS on the next poll instead of being silently dropped.
+  glfwSetInputMode(window, GLFW_STICKY_KEYS, GLFW_TRUE);
 }
 
 void InputManager::pollEvents() {
@@ -33,6 +38,14 @@ void InputManager::pollEvents() {
 
 bool InputManager::isKeyPressed(int key) const {
   return glfwGetKey(window, key) == GLFW_PRESS;
+}
+
+bool InputManager::wasKeyJustPressed(int key) {
+  bool down = isKeyPressed(key);
+  bool &prev = prevKeyDown[key];
+  bool justPressed = down && !prev;
+  prev = down;
+  return justPressed;
 }
 
 glm::vec2 InputManager::getMouseDelta() const { return {deltaX, deltaY}; }

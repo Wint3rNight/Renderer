@@ -464,21 +464,28 @@ void VulkanRenderer::loadScene(const SceneDescription &desc) {
     cameraPresetCallback(desc.camera.position, desc.camera.yaw,
                          desc.camera.pitch, desc.camera.speed);
 
-  // The new scene shares no image history with the old one.
+  // The new scene shares no image history with the old one. The HZB pyramid
+  // must be invalidated too — occlusion-culling the new scene against the
+  // old scene's depth pops meshes for the first frames after a switch.
+  // (The SSGI history ring keeps a few frames of the old scene's bounce
+  // light; that ghost fades within ~10 frames of temporal blend and is
+  // accepted rather than adding a clear path.)
   taaHistoryValid = false;
+  gpuDrivenGBufferPass.invalidateHzb();
 
   spdlog::info("Loaded scene '{}' ({} model(s), {} instanced ring(s))",
                desc.name, desc.models.size(), desc.rings.size());
 }
 
-void VulkanRenderer::loadSceneAt(int index) {
+bool VulkanRenderer::loadSceneAt(int index) {
   if (index < 0 || index >= static_cast<int>(availableScenes.size())) {
     spdlog::error("loadSceneAt: index {} out of range ({} scenes)", index,
                   availableScenes.size());
-    return;
+    return false;
   }
   loadScene(availableScenes[index]);
   activeSceneIndex = index;
+  return true;
 }
 
 void VulkanRenderer::requestSceneLoad(int index) {

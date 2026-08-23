@@ -14,7 +14,10 @@ Camera camera(glm::vec3(0.0f, 2.0f, 0.0f));
 
 // Timing
 float deltaTime = 0.0f;
-float lastFrame = 0.0f;
+// double, not float: glfwGetTime() is seconds since init, and float's ~2 ms
+// resolution past 4.5 hours of uptime would quantize deltaTime into visible
+// camera/animation stutter. The delta itself is small and safe as float.
+double lastFrame = 0.0;
 
 void processInput() {
   if (inputManager.isKeyPressed(GLFW_KEY_ESCAPE))
@@ -42,6 +45,10 @@ void initWindow(const std::string &wName = "Vulkan Renderer",
   glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE); // Enable window resizing
 
   window = glfwCreateWindow(width, height, wName.c_str(), nullptr, nullptr);
+  if (!window) {
+    glfwTerminate();
+    throw std::runtime_error("Failed to create GLFW window");
+  }
 
   // InputManager handles cursor callback and resize callback
   inputManager.init(window);
@@ -61,8 +68,6 @@ int main(int argc, char **argv) {
         camera.MovementSpeed = speed;
       });
   bool cameraMode = true;  // Tab toggles between camera fly-through and ImGui
-  bool prevTabPressed = false;
-  bool prevF1Pressed = false; // F1 toggles HUD-free screenshot mode
   glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
   // Scenes are data-driven: Resources/Scenes/*.scene files describe models,
@@ -77,11 +82,13 @@ int main(int argc, char **argv) {
     try {
       if (!arg.empty() &&
           arg.find_first_not_of("0123456789") == std::string::npos) {
-        vulkanRenderer.loadSceneAt(std::stoi(arg));
+        // An out-of-range index must NOT count as loaded, or the fallback
+        // below is skipped and the app runs with an empty scene.
+        sceneLoaded = vulkanRenderer.loadSceneAt(std::stoi(arg));
       } else {
         vulkanRenderer.loadScene(SceneIO::loadFromFile(arg));
+        sceneLoaded = true;
       }
-      sceneLoaded = true;
     } catch (const std::exception &e) {
       std::cerr << "Failed to load requested scene '" << arg
                 << "': " << e.what() << std::endl;
@@ -104,8 +111,8 @@ int main(int argc, char **argv) {
   }
 
   while (!inputManager.shouldClose()) {
-    float currentFrame = glfwGetTime();
-    deltaTime = currentFrame - lastFrame;
+    double currentFrame = glfwGetTime();
+    deltaTime = static_cast<float>(currentFrame - lastFrame);
     lastFrame = currentFrame;
 
     inputManager.pollEvents();
@@ -116,19 +123,20 @@ int main(int argc, char **argv) {
     // WantCaptureMouse can't drive this because GLFW_CURSOR_DISABLED delivers
     // only raw deltas — ImGui never sees absolute positions and can't detect
     // hover.
-    bool tabNow = inputManager.isKeyPressed(GLFW_KEY_TAB);
-    if (tabNow && !prevTabPressed) {
+    if (inputManager.wasKeyJustPressed(GLFW_KEY_TAB)) {
       cameraMode = !cameraMode;
       glfwSetInputMode(window, GLFW_CURSOR,
                        cameraMode ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+      // Entering UI mode with the HUD hidden would strand the user in a
+      // dead-looking state (free cursor, nothing to click, no mouse-look) —
+      // un-hide the panels so UI mode always shows a UI.
+      if (!cameraMode && !vulkanRenderer.isUiVisible())
+        vulkanRenderer.toggleUiVisibility();
     }
-    prevTabPressed = tabNow;
 
     // F1 toggles HUD-free screenshot mode (hides all ImGui panels).
-    bool f1Now = inputManager.isKeyPressed(GLFW_KEY_F1);
-    if (f1Now && !prevF1Pressed)
+    if (inputManager.wasKeyJustPressed(GLFW_KEY_F1))
       vulkanRenderer.toggleUiVisibility();
-    prevF1Pressed = f1Now;
 
     // Mouse drives camera only in camera mode
     glm::vec2 mouseDelta = inputManager.getMouseDelta();

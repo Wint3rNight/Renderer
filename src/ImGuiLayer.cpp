@@ -97,6 +97,12 @@ bool ImGuiLayer::wantsMouse() const {
 }
 
 void ImGuiLayer::buildUi(DebugUiContext &ui) {
+  // Frame-time history accumulates even while hidden so the graph shows
+  // truthful recent history after un-hiding, not a stale pre-hide splice.
+  frameTimeGraphData[frameTimeGraphOffset] =
+      static_cast<float>(ui.metrics.getLastFrameTimeMs());
+  frameTimeGraphOffset = (frameTimeGraphOffset + 1) % 128;
+
   if (!visible)
     return; // F1 screenshot mode: no windows -> empty draw list this frame
   ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
@@ -107,9 +113,6 @@ void ImGuiLayer::buildUi(DebugUiContext &ui) {
   ImGui::Text("CPU submit FPS: %.1f | CPU: %.2f ms | Avg: %.2f ms",
               ui.metrics.getAverageFps(), ui.metrics.getLastFrameTimeMs(),
               ui.metrics.getAverageFrameTimeMs());
-  frameTimeGraphData[frameTimeGraphOffset] =
-      static_cast<float>(ui.metrics.getLastFrameTimeMs());
-  frameTimeGraphOffset = (frameTimeGraphOffset + 1) % 128;
   ImGui::PlotLines("##ft", frameTimeGraphData, 128, frameTimeGraphOffset,
                    "Frame time (ms)", 0.0f, 50.0f, ImVec2(322, 60));
   ImGui::Text("Shadow: %.2f | Pt: %.2f ms",

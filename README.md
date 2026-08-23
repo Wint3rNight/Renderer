@@ -191,7 +191,7 @@ The renderer logs per-pass GPU timings live and prints a benchmark report on shu
 | --- | ---: |
 | Average frame time | 11.4 ms |
 | Average FPS | ~88 |
-| Draw calls per frame | 38 (GPU-culled, indirect) |
+| Draw calls per frame | 38 in the benchmark view (frustum + occlusion culled, indirect; varies with camera) |
 | Triangles per frame | ~1.13 M |
 | Steady-state VRAM | ~1.2 GiB |
 
@@ -209,7 +209,7 @@ GPU pass timing (same run):
 | SSR / TAA / tonemap composite | 0.54 ms |
 | ImGui | 0.06 ms |
 
-Two things worth noting. The frame is dominated by the screen-space lighting passes (SSGI + deferred lit) rather than geometry submission — culling and LOD selection run on the GPU, so the G-buffer pass stays cheap even with the scene fully in view. And a Debug build with validation layers runs within ~8% of Release: the renderer is thoroughly GPU-bound, so CPU-side build flags barely move the frame time.
+Two things worth noting. The frame is dominated by the screen-space lighting passes (SSGI + deferred lit) rather than geometry submission — culling and LOD selection run on the GPU, so the G-buffer pass stays cheap even with the scene fully in view. And a same-day Debug-with-validation run measured within ~1 ms of this Release run (well inside thermal run-to-run variance on a laptop GPU): the renderer is thoroughly GPU-bound, so CPU-side build flags barely move the frame time.
 
 ## Controls
 

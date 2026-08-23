@@ -69,7 +69,9 @@ public:
   // and instanced drawables, then builds the described scene. Models are
   // cached by path, so returning to a scene reuses its GPU geometry.
   void loadScene(const SceneDescription &desc);
-  void loadSceneAt(int index);
+  // Returns false (and leaves the current scene untouched) when the index
+  // is out of range — callers with a fallback must check this.
+  bool loadSceneAt(int index);
   // Deferred load, safe to call from UI callbacks that run mid-record; the
   // switch happens at the top of the next draw().
   void requestSceneLoad(int index);
@@ -91,6 +93,7 @@ public:
   float getCameraSpeed() const { return imguiCameraSpeed; }
   bool imguiWantsMouse() const { return imguiLayer.wantsMouse(); }
   void toggleUiVisibility() { imguiLayer.toggleVisibility(); }
+  bool isUiVisible() const { return imguiLayer.isVisible(); }
 
   ~VulkanRenderer();
 

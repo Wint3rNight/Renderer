@@ -292,8 +292,11 @@ Material TextureManager::loadMaterial(const std::string &albedoFilename,
   std::string aoKey = aoFilename.empty() ? "__flat_white_ao__"
                                          : normalizeTextureKey(aoFilename);
 
-  std::string materialKey = albedoKey + "|" + normalKey + "|" + metallicKey +
-                            "|" + roughnessKey + "|" + aoKey;
+  // Directory-qualified like the texture cache: equal bare names from two
+  // different models must not alias each other's material descriptors.
+  std::string materialKey = modelBaseDirectory + "|" + albedoKey + "|" +
+                            normalKey + "|" + metallicKey + "|" +
+                            roughnessKey + "|" + aoKey;
 
   auto resolveTex = [&](const std::string &key, uint8_t r, uint8_t g, uint8_t b,
                         uint8_t a) {
@@ -867,11 +870,16 @@ int TextureManager::dispatchPrefilterCompute(int srcImageIndex,
 
 int TextureManager::getOrCreateTexture(const std::string &filename,
                                        const VulkanDevice &device) {
-  std::string key = normalizeTextureKey(filename);
+  std::string norm = normalizeTextureKey(filename);
+  // Cache identity must include the owning model's directory: file
+  // resolution is modelBaseDirectory-relative, so two models shipping the
+  // same bare name ("baseColor.png") are DIFFERENT textures. The bare
+  // normalized name still drives the actual file load.
+  std::string key = modelBaseDirectory + "|" + norm;
   auto it = textureMap.find(key);
   if (it != textureMap.end())
     return it->second;
-  return createTextureImage(key, device);
+  return createTextureImage(norm, key, device);
 }
 
 int TextureManager::getOrCreateFlatTexture(const std::string &cacheKey,
@@ -886,11 +894,12 @@ int TextureManager::getOrCreateFlatTexture(const std::string &cacheKey,
 }
 
 int TextureManager::createTextureImage(const std::string &filename,
+                                       const std::string &cacheKey,
                                        const VulkanDevice &device) {
   int w, h;
   VkDeviceSize sz;
   unsigned char *data = loadTextureFile(filename, &w, &h, &sz);
-  int idx = createTextureImageFromPixels(filename, data, w, h, device);
+  int idx = createTextureImageFromPixels(cacheKey, data, w, h, device);
   stbi_image_free(data);
   return idx;
 }

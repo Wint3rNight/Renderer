@@ -58,6 +58,10 @@ public:
   void cleanup();
 
   void registerModelGeometry(int modelId, ModelManager &modelManager);
+  // Scene switches must call this: the depth pyramid still holds the OLD
+  // scene's depth, and occlusion-testing the new scene's AABBs against it
+  // wrongly culls visible meshes for the first frame per swap image.
+  void invalidateHzb() { hzbValid.assign(hzbValid.size(), false); }
   void beginFrame(uint32_t candidateCount);
   bool prepareFrame(uint32_t imageIndex,
                     const std::vector<GBufferDrawItem> &drawItems,

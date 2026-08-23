@@ -64,7 +64,9 @@ private:
 
   int  getOrCreateTexture(const std::string &filename, const VulkanDevice &device);
   int  getOrCreateFlatTexture(const std::string &cacheKey, uint8_t r, uint8_t g, uint8_t b, uint8_t a, const VulkanDevice &device);
-  int  createTextureImage(const std::string &filename, const VulkanDevice &device);
+  int  createTextureImage(const std::string &filename,
+                          const std::string &cacheKey,
+                          const VulkanDevice &device);
   // shareWithCompute: CONCURRENT graphics+compute sharing for textures the
   // dedicated compute queue samples (e.g. SSAO noise).
   int  createTextureImageFromPixels(const std::string &cacheKey,
